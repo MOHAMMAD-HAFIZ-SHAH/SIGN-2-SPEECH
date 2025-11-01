@@ -251,11 +251,17 @@ def train_model(data_dir, output_dir='./trained_model'):
     model.save(os.path.join(output_dir, f'{MODEL_NAME}.h5'))
     print(f"Saved Keras model to {output_dir}/{MODEL_NAME}.h5")
     
-    # Convert to TensorFlow.js format
-    import tensorflowjs as tfjs
-    tfjs_dir = os.path.join(output_dir, 'tfjs_model')
-    tfjs.converters.save_keras_model(model, tfjs_dir)
-    print(f"Saved TensorFlow.js model to {tfjs_dir}")
+    # Convert to TensorFlow.js format (optional - install tensorflowjs separately)
+    try:
+        import tensorflowjs as tfjs
+        tfjs_dir = os.path.join(output_dir, 'tfjs_model')
+        tfjs.converters.save_keras_model(model, tfjs_dir)
+        print(f"Saved TensorFlow.js model to {tfjs_dir}")
+    except ImportError:
+        print("Note: tensorflowjs not installed. To convert model, install with:")
+        print("  pip install tensorflowjs==4.14.0")
+        print("  tensorflowjs_converter --input_format=keras \\")
+        print(f"    {output_dir}/{MODEL_NAME}.h5 {output_dir}/tfjs_model")
     
     # Save class names and metadata
     metadata = {

@@ -63,8 +63,8 @@ const SignToText = () => {
       }
 
       try {
-        // Make prediction on current frame
-        const prediction = await signLanguageModel.predict(videoRef.current, 0.6);
+        // Make prediction on current frame (lowered threshold to 0.4 for better detection)
+        const prediction = await signLanguageModel.predict(videoRef.current, 0.4);
         
         if (prediction) {
           const { sign, confidence: conf } = prediction;

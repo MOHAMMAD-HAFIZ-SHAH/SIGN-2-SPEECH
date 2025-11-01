@@ -1,120 +1,97 @@
 /**
- * Sign Language Model Loader and Predictor
- * Handles loading TensorFlow.js model and making predictions on webcam frames
+ * Sign Language Model API Client
+ * Communicates with Flask backend API for predictions
  */
-
-import * as tf from '@tensorflow/tfjs';
 
 class SignLanguageModel {
   constructor() {
-    this.model = null;
+    this.apiUrl = 'http://localhost:5001';
     this.metadata = null;
     this.isLoaded = false;
   }
 
   /**
-   * Load the trained model and metadata
+   * Check API health and load metadata
    */
   async loadModel() {
     try {
-      console.log('Loading sign language model...');
+      console.log('Connecting to sign language API...');
       
-      // Load model
-      this.model = await tf.loadLayersModel('/models/tfjs_model/model.json');
-      console.log('Model loaded successfully');
+      // Check if API is running
+      const healthResponse = await fetch(`${this.apiUrl}/health`);
+      const healthData = await healthResponse.json();
+      
+      if (!healthData.model_loaded) {
+        throw new Error('Model not loaded on server');
+      }
       
       // Load metadata (class names, etc.)
-      const metadataResponse = await fetch('/models/model_metadata.json');
-      this.metadata = await metadataResponse.json();
+      const classesResponse = await fetch(`${this.apiUrl}/classes`);
+      this.metadata = await classesResponse.json();
       console.log('Metadata loaded:', this.metadata);
       
-      // Warm up the model with a dummy prediction
-      const dummyInput = tf.zeros([1, this.metadata.img_size, this.metadata.img_size, 1]);
-      const dummyPrediction = this.model.predict(dummyInput);
-      dummyPrediction.dispose();
-      dummyInput.dispose();
-      
       this.isLoaded = true;
-      console.log('Model ready for predictions');
+      console.log('API ready for predictions');
       
       return {
         success: true,
-        classNames: this.metadata.class_names,
+        classNames: this.metadata.classes,
         imgSize: this.metadata.img_size
       };
     } catch (error) {
-      console.error('Error loading model:', error);
+      console.error('Error connecting to API:', error);
       this.isLoaded = false;
       return {
         success: false,
-        error: error.message
+        error: error.message + ' - Make sure the Flask server is running (python api_server.py)'
       };
     }
   }
 
   /**
-   * Preprocess video frame for model input
-   * Converts to grayscale, resizes, and normalizes
+   * Capture frame from video element as base64
    */
-  preprocessFrame(videoElement) {
-    return tf.tidy(() => {
-      // Capture frame from video element
-      const frame = tf.browser.fromPixels(videoElement);
-      
-      // Convert to grayscale (weighted average of RGB channels)
-      const grayscale = frame.mean(2, true);
-      
-      // Resize to model input size
-      const resized = tf.image.resizeBilinear(
-        grayscale, 
-        [this.metadata.img_size, this.metadata.img_size]
-      );
-      
-      // Normalize to [0, 1]
-      const normalized = resized.div(255.0);
-      
-      // Add batch and channel dimensions
-      const batched = normalized.expandDims(0).expandDims(-1);
-      
-      return batched;
-    });
+  captureFrame(videoElement) {
+    const canvas = document.createElement('canvas');
+    canvas.width = videoElement.videoWidth;
+    canvas.height = videoElement.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(videoElement, 0, 0);
+    return canvas.toDataURL('image/jpeg', 0.8);
   }
 
   /**
    * Make prediction on current video frame
    */
   async predict(videoElement, confidenceThreshold = 0.7) {
-    if (!this.isLoaded || !this.model) {
-      console.warn('Model not loaded yet');
+    if (!this.isLoaded) {
+      console.warn('API not connected yet');
       return null;
     }
 
     try {
-      // Preprocess frame
-      const preprocessed = this.preprocessFrame(videoElement);
+      // Capture frame as base64
+      const imageData = this.captureFrame(videoElement);
       
-      // Make prediction
-      const predictions = this.model.predict(preprocessed);
-      const predictionData = await predictions.data();
+      // Send to API
+      const response = await fetch(`${this.apiUrl}/predict`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: imageData,
+          threshold: confidenceThreshold
+        })
+      });
       
-      // Clean up tensors
-      preprocessed.dispose();
-      predictions.dispose();
+      const result = await response.json();
       
-      // Find class with highest confidence
-      const maxConfidence = Math.max(...predictionData);
-      const predictedClassIndex = predictionData.indexOf(maxConfidence);
-      const predictedClass = this.metadata.class_names[predictedClassIndex];
-      
-      // Only return prediction if confidence is above threshold
-      if (maxConfidence >= confidenceThreshold) {
+      if (result.success && result.sign) {
         return {
-          sign: predictedClass,
-          confidence: maxConfidence,
-          allPredictions: this.metadata.class_names.map((name, idx) => ({
-            sign: name,
-            confidence: predictionData[idx]
-          }))
+          sign: result.sign,
+          confidence: result.confidence,
+          allPredictions: result.top_predictions
         };
       }
       
@@ -129,7 +106,7 @@ class SignLanguageModel {
    * Get all class names
    */
   getClassNames() {
-    return this.metadata?.class_names || [];
+    return this.metadata?.classes || [];
   }
 
   /**

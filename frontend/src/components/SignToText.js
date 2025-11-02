@@ -49,6 +49,35 @@ const SignToText = () => {
     }
   };
   
+  // Update grayscale preview box
+  const updateGrayscalePreview = () => {
+    if (!videoRef.current || !canvasRef.current || !isCameraActive) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const video = videoRef.current;
+
+    // Draw current frame from video
+    ctx.save();
+    // Mirror horizontally to match the video display
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    // Get image data and convert to grayscale
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      data[i] = avg;     // R
+      data[i + 1] = avg; // G
+      data[i + 2] = avg; // B
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  };
+
   const startRealTimeDetection = () => {
     if (!modelLoaded || !videoRef.current) return;
 
@@ -63,6 +92,9 @@ const SignToText = () => {
       }
 
       try {
+        // Update the grayscale preview box
+        updateGrayscalePreview();
+
         // Make prediction on current frame (lowered threshold to 0.4 for better detection)
         const prediction = await signLanguageModel.predict(videoRef.current, 0.4);
         
@@ -200,11 +232,20 @@ const SignToText = () => {
           muted 
         />
 
-        {/* Canvas for overlays (optional - can be used for hand detection visualization) */}
-        <canvas 
-          ref={canvasRef}
-          className={`absolute inset-0 w-full h-full pointer-events-none ${isCameraActive ? '' : 'hidden'}`}
-        />
+        {/* Grayscale Reference Box Overlay */}
+        {isCameraActive && (
+          <div className="absolute top-4 left-4 w-48 h-48 bg-white border-4 border-green-500 rounded-lg overflow-hidden shadow-2xl">
+            <canvas 
+              ref={canvasRef}
+              width="192"
+              height="192"
+              className="w-full h-full"
+            />
+            <div className="absolute bottom-0 left-0 right-0 bg-green-500 bg-opacity-90 text-white text-center py-1 text-xs font-semibold">
+              Place hand here
+            </div>
+          </div>
+        )}
 
         {/* Current Detection Overlay */}
         {isCameraActive && currentSign && (
